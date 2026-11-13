@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSO Dash</title>
+<style>
+  :root { --brand: #dc0028; --ink: #1d2433; --muted: #5d6677; --paper: #ffffff; --bg: #f3f4f7; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; background: var(--bg); color: var(--ink); }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+  header h1 { font-size: 22px; margin: 0; }
+  .brand { color: var(--brand); font-weight: 700; font-size: 14px; }
+  .spacer { flex: 1; }
+  button { font: inherit; border: 1px solid #c9ceda; background: var(--paper); color: var(--ink); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+  button.primary { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+  button:focus-visible, a:focus-visible { outline: 3px solid #2b6fff; outline-offset: 2px; }
+  #stage { border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 2px 10px rgba(20,30,60,.12); touch-action: none; }
+  canvas { display: block; width: 100%; height: auto; }
+  #touch { display: none; gap: 10px; margin-top: 10px; }
+  #touch button { flex: 1; padding: 18px 0; font-size: 18px; font-weight: 600; user-select: none; -webkit-user-select: none; touch-action: none; }
+  @media (pointer: coarse) { #touch { display: flex; } }
+  .help { color: var(--muted); font-size: 14px; margin: 10px 2px; }
+  .modal { position: fixed; inset: 0; background: rgba(20,26,40,.55); display: flex; align-items: center; justify-content: center; padding: 16px; overflow: auto; }
+  .modal[hidden] { display: none; }
+  .card { background: var(--paper); border-radius: 14px; max-width: 520px; width: 100%; padding: 22px 24px; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+  .card h2 { margin: 0 0 8px; font-size: 24px; }
+  .card p { margin: 8px 0; line-height: 1.45; }
+  .card ul { margin: 8px 0; padding-left: 20px; line-height: 1.5; }
+  .stats { display: flex; gap: 12px; margin: 14px 0; }
+  .stat { flex: 1; background: var(--bg); border-radius: 10px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 22px; }
+  .stat span { font-size: 12px; color: var(--muted); }
+  .tip { border-left: 4px solid var(--brand); background: #fff5f6; padding: 10px 12px; border-radius: 0 8px 8px 0; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; align-items: center; }
+  .actions a { color: var(--brand); font-size: 14px; margin-left: auto; }
+  .legend { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; font-size: 14px; margin: 10px 0; }
+  .rank { font-size: 18px; font-weight: 700; color: var(--brand); margin: 0 0 4px; }
+  #board h3 { margin: 16px 0 6px; font-size: 16px; }
+  #postForm { display: flex; gap: 8px; }
+  #postForm input { flex: 1; min-width: 0; font: inherit; padding: 8px 10px; border: 1px solid #c9ceda; border-radius: 8px; }
+  #boardList { margin: 8px 0 0; padding-left: 26px; font-size: 14px; line-height: 1.6; max-height: 170px; overflow: auto; }
+  #boardList li span { float: right; font-weight: 600; }
+  #boardList li.me { color: var(--brand); font-weight: 700; }
+  .note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+  .dot { display: inline-block; width: 22px; height: 22px; border-radius: 50%; color: #fff; font-weight: 700; font-size: 12px; text-align: center; line-height: 22px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>DSO Dash</h1>
+    <span class="brand" id="brandName"></span>
+    <span class="spacer"></span>
+    <button id="muteBtn" type="button">Sound: on</button>
+  </header>
+  <div id="stage"><canvas id="c" width="800" height="300" aria-label="DSO Dash game"></canvas></div>
+  <div id="touch">
+    <button id="duckBtn" type="button">Duck</button>
+    <button id="jumpBtn" type="button">Jump</button>
+  </div>
+  <p class="help">Jump: Space or ↑ (or tap). Duck: ↓ (or the Duck button). Collect paid invoices and keep DSO under 90 days.</p>
+</main>
+
+<div class="modal" id="intro">
+  <div class="card">
+    <h2>DSO Dash</h2>
+    <p>You are <span id="role">a collector</span> running along the invoice aging timeline. The older the debt gets, the faster things move and the harder it is to collect.</p>
+    <ul>
+      <li><b>DSO</b> (days sales outstanding) is your health. Every obstacle you hit adds days. At 90 days the debt is written off.</li>
+      <li><b>Jump</b> over disputes, invoice errors and insolvency pits. <b>Duck</b> under excuses.</li>
+      <li>Collect paid invoices for cash.</li>
+    </ul>
+    <div class="legend" id="legend"></div>
+    <p class="tip" id="challenge" hidden></p>
+    <div class="actions">
+      <button class="primary" id="startBtn" type="button">Start collecting</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="over" hidden>
+  <div class="card">
+    <h2>Written off at 90 days</h2>
+    <p class="rank" id="oRank"></p>
+    <p id="oDeath"></p>
+    <div class="stats">
+      <div class="stat"><b id="oCash"></b><span>cash collected</span></div>
+      <div class="stat"><b id="oBest"></b><span>your best</span></div>
+      <div class="stat"><b id="oZone"></b><span>aging bucket reached</span></div>
+    </div>
+    <p class="tip" id="oTip"></p>
+    <div class="actions">
+      <button class="primary" id="againBtn" type="button">Play again</button>
+      <button id="copyBtn" type="button">Copy result</button>
+      <button id="linkBtn" type="button">Copy challenge link</button>
+      <button id="shareBtn" type="button" hidden>Share on LinkedIn</button>
+      <a id="siteLink" target="_blank" rel="noopener"></a>
+    </div>
+    <div id="board">
+      <h3>Top collectors</h3>
+      <form id="postForm">
+        <input id="nameInput" maxlength="16" placeholder="Nickname" aria-label="Nickname for the scoreboard" autocomplete="off">
+        <button id="postBtn" type="submit">Post score</button>
+      </form>
+      <p class="note" id="boardNote"></p>
+      <ol id="boardList"></ol>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- Skin: everything brand-specific lives here, so a second skin is one more object ----
+  var THEMES = {};
+  THEMES.atradius = {
+    brand: 'Atradius Collections',
+    role: 'a collector',
+    color: '#dc0028',
+    siteLabel: 'atradiuscollections.com',
+    siteUrl: 'https://atradiuscollections.com',
+    powerups: {
+      shield: { letter: 'C', color: '#1f6fd6', name: 'Local collector', desc: 'handles the next obstacle for you' },
+      settle: { letter: 'S', color: '#7a3fc4', name: 'Amicable settlement', desc: 'clears the road, pays €3,000 and cuts DSO by 10 days' },
+      check:  { letter: '✓', color: '#0b8a6a', name: 'Credit check', desc: 'shows what to do at each obstacle for 10 seconds' },
+      ptp:    { letter: 'P', color: '#d98a00', name: 'Promise to pay', desc: 'pays €5,000 only if you avoid every obstacle for 8 seconds' }
+    },
+    tips: {
+      dispute: 'Disputes stopped you most often. Log each dispute the day it is raised and give it an owner: an invoice in dispute does not get paid.',
+      po: 'Invoice errors tripped you up most often. Check the PO number, address and amounts before sending: a clean invoice gets paid sooner.',
+      excuse: 'Excuses cost you the most. Ask for a specific payment date and amount, then follow up on that date.',
+      pit: 'Insolvency caught you most often. Watch for warning signs such as broken promises, and act early while there is still something to collect.'
+    }
+  };
+
+  THEMES.creditiq = {
+    brand: 'Credit-IQ',
+    role: 'an AR specialist',
+    color: '#1e5bd8',
+    siteLabel: '',
+    siteUrl: '',
+    powerups: {
+      magnet: { letter: 'R', color: '#1f6fd6', name: 'Automated reminders', desc: 'pull nearby paid invoices to you for 10 seconds' },
+      double: { letter: '×2', color: '#7a3fc4', name: 'Cash application', desc: 'doubles every paid invoice for 10 seconds' },
+      slow:   { letter: 'D', color: '#0b8a6a', name: 'AR dashboard', desc: 'slows everything down for 6 seconds so you see what is coming' },
+      ptp:    { letter: 'P', color: '#d98a00', name: 'Promise to pay', desc: 'pays €5,000 only if you avoid every obstacle for 8 seconds' }
+    },
+    tips: {
+      dispute: 'Disputes stopped you most often. Track every dispute in one place with an owner and a due date: an invoice in dispute does not get paid.',
+      po: 'Invoice errors tripped you up most often. Validate the PO number, address and amounts before the invoice goes out: a clean invoice gets paid sooner.',
+      excuse: 'Excuses cost you the most. Record each promised payment date and let a reminder go out automatically when it passes.',
+      pit: 'Insolvency caught you most often. Watch payment behaviour for warning signs such as broken promises, and escalate early.'
+    }
+  };
+  var skin = (new URLSearchParams(location.search).get('skin') || '').toLowerCase();
+  var THEME = THEMES[skin] || THEMES.atradius;
+  var SHIELD_COLOR = '#1f6fd6', HINT_COLOR = '#0b8a6a';
+  var TIMED = ['ptp', 'shield', 'check', 'magnet', 'double', 'slow'];
+
+  var EXCUSES = ['Next week!', 'Cheque is in the post', 'Never got the invoice', 'Boss is away', 'Dog ate the invoice',
+    'Our system is down', 'We paid. Probably.', 'New ERP, sorry', 'Ask me after Q4', 'Wrong department', 'It is in approval', 'Fax it again?'];
+  var CLOSE = ['Close call! +€250', 'By a whisker! +€250', 'Smooth. +€250'];
+  var MILES = [
+    [10000, '€10k collected. The coffee budget is safe.'],
+    [50000, '€50k. The CFO now knows your name.'],
+    [100000, '€100k. Finance is sending cake.'],
+    [250000, '€250k. Cash flow is officially flowing.'],
+    [500000, '€500k. They are naming a meeting room after you.']
+  ];
+  var RANKS = [[0, 'Intern on day one'], [10000, 'Reminder Sender'], [40000, 'Promise Chaser'], [100000, 'Dispute Slayer'], [200000, 'DSO Whisperer'], [400000, 'Cash Flow Legend']];
+  var DEATHS = {
+    dispute: 'Buried under a pile of disputes.',
+    po: 'Defeated by a missing PO number. Classic.',
+    excuse: 'You believed the cheque was in the post.',
+    pit: 'The debtor went under and took you along.'
+  };
+  function cleanName(n) { return String(n || '').replace(/[^A-Za-z0-9À-ɏ ._-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16); }
+  var params = new URLSearchParams(location.search);
+  var challenge = null;
+  (function () {
+    var c = parseInt(params.get('c'), 10), n = cleanName(params.get('n'));
+    if (c > 0 && c <= 5000000) challenge = { name: n || 'A colleague', score: c };
+  })();
+  var target = null;
+
+  var W = 800, H = 300, GROUND = 250;
+  var GRAVITY = 1900, JUMP_V = 640;
+  var PX = 90, PW = 26, PH = 48, PDUCK = 24;
+  var ZONES = [
+    { name: 'Current',     from: 0,  speed: 300, sky: ['#dff1ff', '#f6fbff'] },
+    { name: '1–30 days',   from: 15, speed: 350, sky: ['#e6f0d8', '#fafcf2'] },
+    { name: '31–60 days',  from: 32, speed: 400, sky: ['#ffeccb', '#fff9ec'] },
+    { name: '61–90 days',  from: 50, speed: 455, sky: ['#ffd9c2', '#fff3ea'] },
+    { name: '90+ days',    from: 70, speed: 510, sky: ['#f4c6cc', '#fdeef0'] }
+  ];
+  var HIT_DAYS = { dispute: 12, po: 8, excuse: 10, pit: 22 };
+  var HINT = { dispute: 'JUMP', po: 'JUMP', excuse: 'DUCK', pit: 'JUMP' };
+
+  var canvas = document.getElementById('c');
+  var ctx = canvas.getContext('2d');
+  var dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+
+  document.documentElement.style.setProperty('--brand', THEME.color);
+  document.getElementById('brandName').textContent = THEME.brand;
+  var siteLink = document.getElementById('siteLink');
+  if (THEME.siteUrl) { siteLink.textContent = THEME.siteLabel; siteLink.href = THEME.siteUrl; } else siteLink.hidden = true;
+  document.getElementById('role').textContent = THEME.role;
+  var legend = document.getElementById('legend');
+  Object.keys(THEME.powerups).forEach(function (k) {
+    var p = THEME.powerups[k];
+    var dot = document.createElement('span');
+    dot.className = 'dot'; dot.style.background = p.color; dot.textContent = p.letter;
+    var txt = document.createElement('span');
+    var b = document.createElement('b'); b.textContent = p.name;
+    txt.appendChild(b); txt.appendChild(document.createTextNode(': ' + p.desc + '.'));
+    legend.appendChild(dot); legend.appendChild(txt);
+  });
+
+  // ---- Sound ----
+  var audio = null, muted = false;
+  function beep(freq, dur, type, vol) {
+    if (muted) return;
+    try {
+      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+      var o = audio.createOscillator(), g = audio.createGain();
+      o.type = type || 'square'; o.frequency.value = freq;
+      g.gain.value = vol || 0.04;
+      g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + dur);
+      o.connect(g); g.connect(audio.destination);
+      o.start(); o.stop(audio.currentTime + dur);
+    } catch (e) { /* sound is optional */ }
+  }
+  var muteBtn = document.getElementById('muteBtn');
+  muteBtn.addEventListener('click', function () {
+    muted = !muted; muteBtn.textContent = 'Sound: ' + (muted ? 'off' : 'on'); muteBtn.blur();
+  });
+
+  // ---- State ----
+  var mode = 'intro', overAt = 0, s = null;
+  var input = { duck: false, jumpHeld: false, jumpBuf: 0 };
+  var best = 0;
+  try { best = parseInt(localStorage.getItem('dsoDashBest') || '0', 10) || 0; } catch (e) {}
+
+  var skyline = [];
+  (function () {
+    var x = 0, seed = 7;
+    function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+    while (x < 1600) { var w = 40 + rnd() * 50; skyline.push({ x: x, w: w, h: 40 + rnd() * 90 }); x += w + 6 + rnd() * 20; }
+  })();
+
+  function reset() {
+    s = {
+      t: 0, dist: 0, zone: 0, speed: ZONES[0].speed, banner: 2.5,
+      cash: 0, dso: 30, invuln: 0,
+      y: GROUND, vy: 0, onGround: true, duck: false,
+      obstacles: [], items: [], msgs: [],
+      nextObs: 500,
+      shield: 0, check: 0, ptp: 0, magnet: 0, double: 0, slow: 0,
+      hits: { dispute: 0, po: 0, excuse: 0, pit: 0 },
+      toast: null, milestone: 0, lastHit: 'dispute', beaten: false, posted: false
+    };
+    input.jumpBuf = 0;
+  }
+  reset();
+  window.dsoDash = { get state() { return s; }, get mode() { return mode; } };
+
+  function start() {
+    reset(); mode = 'play';
+    target = challenge || (best > 0 ? { name: 'your best', score: best } : null);
+    document.getElementById('intro').hidden = true;
+    document.getElementById('over').hidden = true;
+    beep(660, 0.1);
+  }
+
+  function money(n) { return '€' + Math.round(n).toLocaleString('en-GB'); }
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function msg(text, color) { s.msgs.push({ text: text, color: color || '#1d2433', t: 1.4, y: GROUND - 95 }); }
+
+  function zoneAt(t) { var z = 0; for (var i = 0; i < ZONES.length; i++) if (t >= ZONES[i].from) z = i; return z; }
+
+  // ---- Spawning ----
+  function spawn() {
+    var types = ['dispute', 'po'];
+    if (s.zone >= 1) types.push('excuse', 'excuse');
+    if (s.zone >= 2) types.push('pit');
+    var type = types[Math.floor(Math.random() * types.length)];
+    var x = W + 40, o = { type: type, x: x, near: 99 };
+    if (type === 'dispute') { o.w = 28; o.h = 38; }
+    else if (type === 'po') { o.w = 40; o.h = 18; }
+    else if (type === 'excuse') { o.w = 96; o.h = 70; o.text = EXCUSES[Math.floor(Math.random() * EXCUSES.length)]; }
+    else { o.w = 90; o.h = 0; }
+    s.obstacles.push(o);
+
+    var cx = x + o.w / 2, value = 500 * (s.zone + 1);
+    if (type === 'excuse') {
+      for (var i = -1; i <= 1; i++) s.items.push({ kind: 'coin', x: cx + i * 30, y: GROUND - 12, value: value });
+    } else {
+      var spread = type === 'pit' ? 42 : 34;
+      s.items.push({ kind: 'coin', x: cx - spread, y: GROUND - 70, value: value });
+      s.items.push({ kind: 'coin', x: cx, y: GROUND - 92, value: value });
+      s.items.push({ kind: 'coin', x: cx + spread, y: GROUND - 70, value: value });
+    }
+
+    var gap = s.speed * rand(Math.max(0.85, 1.05 - s.zone * 0.05), 1.65 - s.zone * 0.08);
+    s.nextObs = o.w + gap;
+
+    if (Math.random() < 0.22) {
+      var extras = Object.keys(THEME.powerups).filter(function (k) { return k !== 'ptp'; });
+      var kind = (Math.random() < 0.4 && s.ptp <= 0) ? 'ptp' : extras[Math.floor(Math.random() * extras.length)];
+      s.items.push({ kind: kind, x: x + o.w + gap / 2, y: GROUND - 26 });
+    }
+  }
+
+  // ---- Rules ----
+  function hit(type) {
+    if (s.shield > 0) {
+      s.shield = 0; s.invuln = 1;
+      msg('Collector handled it', SHIELD_COLOR); beep(520, 0.12, 'triangle');
+      return;
+    }
+    s.hits[type]++; s.lastHit = type; s.dso += HIT_DAYS[type]; s.invuln = 1.2;
+    msg('+' + HIT_DAYS[type] + ' days', THEME.color); beep(140, 0.25, 'sawtooth', 0.06);
+    if (s.ptp > 0) { s.ptp = 0; msg('Promise broken', '#8a5a00'); }
+    if (type === 'pit') { s.vy = -520; s.onGround = false; }
+    if (s.dso >= 90) gameOver();
+  }
+
+  function collect(it) {
+    if (it.kind === 'coin') { s.cash += it.value * (s.double > 0 ? 2 : 1); beep(880, 0.05, 'square', 0.025); return; }
+    var p = THEME.powerups[it.kind];
+    if (it.kind === 'shield') s.shield = 12;
+    if (it.kind === 'check') s.check = 10;
+    if (it.kind === 'ptp') s.ptp = 8;
+    if (it.kind === 'magnet') s.magnet = 10;
+    if (it.kind === 'double') s.double = 10;
+    if (it.kind === 'slow') s.slow = 6;
+    if (it.kind === 'settle') {
+      s.obstacles = s.obstacles.filter(function (o) { return o.x > W; });
+      s.cash += 3000; s.dso = Math.max(0, s.dso - 10);
+    }
+    msg(p.name, p.color); beep(700, 0.08, 'triangle'); beep(1050, 0.14, 'triangle');
+  }
+
+  function gameOver() {
+    mode = 'over'; overAt = performance.now();
+    s.dso = 90;
+    if (s.cash > best) { best = s.cash; try { localStorage.setItem('dsoDashBest', String(best)); } catch (e) {} }
+    var worst = 'dispute';
+    Object.keys(s.hits).forEach(function (k) { if (s.hits[k] > s.hits[worst]) worst = k; });
+    document.getElementById('oCash').textContent = money(s.cash);
+    document.getElementById('oBest').textContent = money(best);
+    document.getElementById('oZone').textContent = ZONES[s.zone].name;
+    document.getElementById('oTip').textContent = THEME.tips[worst];
+    document.getElementById('oRank').textContent = 'Your rank: ' + rankFor(s.cash);
+    document.getElementById('oDeath').textContent = DEATHS[s.lastHit] +
+      (challenge ? (s.cash > challenge.score ? ' But you beat ' + challenge.name + '.' : ' ' + challenge.name + ' is still ahead with ' + money(challenge.score) + '.') : '');
+    document.getElementById('linkBtn').textContent = 'Copy challenge link';
+    postBtn.disabled = false; postBtn.textContent = 'Post score';
+    loadBoard();
+    document.getElementById('shareBtn').hidden = !hosted;
+    document.getElementById('copyBtn').textContent = 'Copy result';
+    document.getElementById('over').hidden = false;
+    document.getElementById('againBtn').focus();
+    beep(200, 0.4, 'sawtooth', 0.06);
+  }
+
+  function rankFor(cash) { var r = RANKS[0][1]; for (var i = 0; i < RANKS.length; i++) if (cash >= RANKS[i][0]) r = RANKS[i][1]; return r; }
+  var hosted = /^https?:$/.test(location.protocol);
+  function challengeUrl() {
+    var u = new URL(location.href); u.search = '';
+    if (THEME !== THEMES.atradius) u.searchParams.set('skin', skin);
+    u.searchParams.set('c', String(s.cash));
+    var n = cleanName(nameInput.value); if (n) u.searchParams.set('n', n);
+    return u.toString();
+  }
+  function shareText() {
+    return 'I made "' + rankFor(s.cash) + '" in DSO Dash: ' + money(s.cash) + ' collected before DSO hit 90 days. Can you beat me?' +
+      (hosted ? ' ' + challengeUrl() : '');
+  }
+
+  // ---- Online scoreboard (needs the /api/scores function, so it only works when hosted) ----
+  var API = '/api/scores';
+  var nameInput = document.getElementById('nameInput'), postBtn = document.getElementById('postBtn');
+  var boardList = document.getElementById('boardList'), boardNote = document.getElementById('boardNote');
+  var postForm = document.getElementById('postForm');
+  try { nameInput.value = cleanName(localStorage.getItem('dsoDashName')); } catch (e) {}
+  function renderBoard(rows, mine) {
+    boardList.textContent = '';
+    rows.slice(0, 10).forEach(function (r) {
+      var li = document.createElement('li'), sp = document.createElement('span');
+      li.textContent = String(r.name); sp.textContent = money(Number(r.score) || 0); li.appendChild(sp);
+      if (mine && r.name === mine.name && r.score === mine.score) li.className = 'me';
+      boardList.appendChild(li);
+    });
+    postForm.hidden = false;
+    boardNote.textContent = rows.length ? 'Your nickname and score are visible to everyone who plays.' : 'No scores yet. Be the first.';
+  }
+  function boardOffline() {
+    boardList.textContent = ''; postForm.hidden = true;
+    boardNote.textContent = 'The shared scoreboard is not switched on yet.';
+  }
+  function loadBoard() {
+    boardNote.textContent = 'Loading scores…';
+    fetch(API).then(function (r) { if (!r.ok) throw 0; return r.json(); })
+      .then(function (d) { renderBoard(d.top || []); }).catch(boardOffline);
+  }
+  postForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = cleanName(nameInput.value);
+    if (!name) { boardNote.textContent = 'Type a nickname first.'; nameInput.focus(); return; }
+    if (s.posted) return;
+    try { localStorage.setItem('dsoDashName', name); } catch (err) {}
+    postBtn.disabled = true; postBtn.textContent = 'Posting…';
+    var mine = { name: name, score: s.cash };
+    fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, score: s.cash, skin: THEME === THEMES.creditiq ? 'creditiq' : 'atradius' }) })
+      .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+      .then(function (d) { s.posted = true; postBtn.textContent = 'Posted'; renderBoard(d.top || [], mine); })
+      .catch(function () { postBtn.disabled = false; postBtn.textContent = 'Post score'; boardNote.textContent = 'Could not post the score. Try again.'; });
+  });
+  document.getElementById('linkBtn').addEventListener('click', function () {
+    var btn = this;
+    function done(ok) { btn.textContent = ok ? 'Link copied' : 'Copy failed'; }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(challengeUrl()).then(function () { done(true); }, function () { done(false); });
+    else done(false);
+  });
+  if (challenge) {
+    var ch = document.getElementById('challenge');
+    ch.textContent = challenge.name + ' collected ' + money(challenge.score) + ' and made "' + rankFor(challenge.score) + '". Beat that.';
+    ch.hidden = false;
+  }
+
+  // ---- Update ----
+  function playerBox() {
+    var h = s.duck ? PDUCK : PH;
+    return { x: PX + 3, y: s.y - h + 3, w: PW - 6, h: h - 3 };
+  }
+
+  function update(dt) {
+    s.t += dt;
+    var z = zoneAt(s.t);
+    if (z !== s.zone) { s.zone = z; s.banner = 2.5; beep(440, 0.1, 'triangle'); beep(660, 0.2, 'triangle'); }
+    s.speed = ZONES[z].speed + (z === 4 ? Math.min(170, (s.t - ZONES[4].from) * 3) : 0);
+    if (s.slow > 0) s.speed *= 0.7;
+    var dx = s.speed * dt;
+    s.dist += dx;
+
+    if (input.jumpBuf > 0) input.jumpBuf -= dt;
+    if (s.onGround && (input.jumpBuf > 0 || input.jumpHeld) && !input.duck) {
+      s.vy = -JUMP_V; s.onGround = false; input.jumpBuf = 0; beep(520, 0.07, 'square', 0.03);
+    }
+    s.duck = input.duck && s.onGround;
+    if (!s.onGround) {
+      s.vy += GRAVITY * (input.duck ? 2.4 : 1) * dt;
+      s.y += s.vy * dt;
+      if (s.y >= GROUND) { s.y = GROUND; s.vy = 0; s.onGround = true; }
+    }
+
+    s.nextObs -= dx;
+    if (s.nextObs <= 0) spawn();
+
+    var i, o, it;
+    for (i = 0; i < s.obstacles.length; i++) s.obstacles[i].x -= dx;
+    for (i = 0; i < s.items.length; i++) s.items[i].x -= dx;
+    s.obstacles = s.obstacles.filter(function (o) { return o.x + o.w > -20; });
+
+    var b = playerBox();
+    for (i = 0; i < s.obstacles.length; i++) {
+      o = s.obstacles[i];
+      if (o.done || o.type === 'pit' || o.type === 'excuse') continue;
+      if (b.x < o.x + o.w && b.x + b.w > o.x) {
+        var gapv = (GROUND - o.h) - (b.y + b.h);
+        if (gapv < o.near) o.near = gapv;
+      } else if (o.x + o.w < b.x) {
+        o.done = true;
+        if (!o.hit && o.near < 9) { s.cash += 250; msg(CLOSE[Math.floor(Math.random() * CLOSE.length)], '#b36b00'); beep(1200, 0.06, 'triangle'); }
+      }
+    }
+    if (s.invuln > 0) s.invuln -= dt;
+    else {
+      for (i = 0; i < s.obstacles.length; i++) {
+        o = s.obstacles[i];
+        var collided;
+        if (o.type === 'pit') {
+          var mid = PX + PW / 2;
+          collided = s.onGround && mid > o.x + 10 && mid < o.x + o.w - 10;
+        } else {
+          var top = o.type === 'excuse' ? GROUND - 30 - o.h : GROUND - o.h;
+          collided = b.x < o.x + o.w - 3 && b.x + b.w > o.x + 3 && b.y < top + o.h - 3 && b.y + b.h > top + 3;
+        }
+        if (collided) { o.hit = true; hit(o.type); if (mode !== 'play') return; break; }
+      }
+    }
+
+    if (s.magnet > 0) {
+      var mx = PX + PW / 2, my = s.y - 24;
+      for (i = 0; i < s.items.length; i++) {
+        it = s.items[i];
+        if (it.kind !== 'coin') continue;
+        var ddx = mx - it.x, ddy = my - it.y, dd = Math.sqrt(ddx * ddx + ddy * ddy);
+        if (dd < 170 && dd > 1) { it.x += ddx / dd * 520 * dt; it.y += ddy / dd * 520 * dt; }
+      }
+    }
+    var keep = [];
+    for (i = 0; i < s.items.length; i++) {
+      it = s.items[i];
+      var nx = Math.max(b.x, Math.min(it.x, b.x + b.w)), ny = Math.max(b.y, Math.min(it.y, b.y + b.h));
+      var d2 = (it.x - nx) * (it.x - nx) + (it.y - ny) * (it.y - ny);
+      if (d2 < 16 * 16) collect(it);
+      else if (it.x > -20) keep.push(it);
+    }
+    s.items = keep;
+
+    ['shield', 'check', 'magnet', 'double', 'slow'].forEach(function (k) { if (s[k] > 0) s[k] -= dt; });
+    if (s.ptp > 0) {
+      s.ptp -= dt;
+      if (s.ptp <= 0) { s.ptp = 0; s.cash += 5000; msg('Promise kept +€5,000', '#0b8a6a'); beep(990, 0.2, 'triangle'); }
+    }
+    while (s.milestone < MILES.length && s.cash >= MILES[s.milestone][0]) { s.toast = { text: MILES[s.milestone][1], t: 3 }; s.milestone++; beep(990, 0.15, 'triangle'); }
+    if (target && !s.beaten && s.cash > target.score) {
+      s.beaten = true;
+      s.toast = { text: challenge ? 'You beat ' + target.name + '!' : 'New personal best!', t: 3 };
+    }
+    if (s.toast) { s.toast.t -= dt; if (s.toast.t <= 0) s.toast = null; }
+    if (s.banner > 0) s.banner -= dt;
+    for (i = 0; i < s.msgs.length; i++) { s.msgs[i].t -= dt; s.msgs[i].y -= 30 * dt; }
+    s.msgs = s.msgs.filter(function (m) { return m.t > 0; });
+  }
+
+  // ---- Drawing ----
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  }
+
+  function drawBackground() {
+    var zc = ZONES[s.zone].sky;
+    var g = ctx.createLinearGradient(0, 0, 0, GROUND);
+    g.addColorStop(0, zc[0]); g.addColorStop(1, zc[1]);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = 'rgba(40,55,90,0.10)';
+    var off = (s.dist * 0.15) % 1600;
+    for (var i = 0; i < skyline.length; i++) {
+      var bl = skyline[i], x = bl.x - off;
+      if (x + bl.w < 0) x += 1600;
+      if (x < W) ctx.fillRect(x, GROUND - bl.h, bl.w, bl.h);
+    }
+
+    ctx.fillStyle = '#e9ebf0'; ctx.fillRect(0, GROUND, W, H - GROUND);
+    ctx.fillStyle = '#39415a'; ctx.fillRect(0, GROUND, W, 3);
+    ctx.fillStyle = '#c3c8d4';
+    var doff = s.dist % 60;
+    for (var dxx = -doff; dxx < W; dxx += 60) ctx.fillRect(dxx, GROUND + 22, 26, 3);
+  }
+
+  function drawObstacle(o) {
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (o.type === 'pit') {
+      ctx.fillStyle = '#20263a'; ctx.fillRect(o.x, GROUND, o.w, H - GROUND);
+      ctx.fillStyle = '#ffb3bd'; ctx.font = '700 10px system-ui, sans-serif';
+      ctx.fillText('INSOLVENCY', o.x + o.w / 2, GROUND + 26);
+    } else if (o.type === 'dispute') {
+      var y = GROUND - o.h;
+      ctx.fillStyle = '#a80020'; rr(o.x, y, 16, 8, 3); ctx.fill();
+      ctx.fillStyle = THEME.color; rr(o.x, y + 5, o.w, o.h - 5, 4); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = '700 22px system-ui, sans-serif';
+      ctx.fillText('!', o.x + o.w / 2, y + o.h / 2 + 4);
+    } else if (o.type === 'po') {
+      var py = GROUND - o.h;
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#39415a'; ctx.lineWidth = 2;
+      rr(o.x, py, o.w, o.h, 3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#39415a'; ctx.font = '700 11px system-ui, sans-serif';
+      ctx.fillText('PO ?', o.x + o.w / 2, py + o.h / 2 + 1);
+    } else {
+      var ey = GROUND - 30 - o.h;
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#39415a'; ctx.lineWidth = 2;
+      rr(o.x, ey, o.w, o.h - 10, 10); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(o.x + 60, ey + o.h - 11); ctx.lineTo(o.x + 74, ey + o.h); ctx.lineTo(o.x + 78, ey + o.h - 11);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.fillRect(o.x + 61, ey + o.h - 13, 16, 3);
+      ctx.fillStyle = '#39415a'; ctx.font = '600 11px system-ui, sans-serif';
+      var words = o.text.split(' '), lines = [''], li = 0;
+      for (var w = 0; w < words.length; w++) {
+        var test = lines[li] ? lines[li] + ' ' + words[w] : words[w];
+        if (ctx.measureText(test).width > o.w - 14 && lines[li]) { lines.push(words[w]); li++; } else lines[li] = test;
+      }
+      var ly = ey + (o.h - 10) / 2 - (lines.length - 1) * 7;
+      for (var l = 0; l < lines.length; l++) ctx.fillText(lines[l], o.x + o.w / 2, ly + l * 14);
+    }
+    if (s.zone === 0 || s.check > 0) {
+      var hy = o.type === 'excuse' ? GROUND - 30 - o.h - 14 : GROUND - Math.max(o.h, 10) - 16;
+      var label = HINT[o.type];
+      ctx.font = '700 11px system-ui, sans-serif';
+      ctx.fillStyle = HINT_COLOR; rr(o.x + o.w / 2 - 22, hy - 9, 44, 18, 9); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillText(label, o.x + o.w / 2, hy + 1);
+    }
+  }
+
+  function drawItem(it) {
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (it.kind === 'coin') {
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#0b8a6a'; ctx.lineWidth = 2;
+      rr(it.x - 8, it.y - 10, 16, 20, 3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#0b8a6a'; ctx.font = '700 12px system-ui, sans-serif'; ctx.fillText('€', it.x, it.y + 1);
+      return;
+    }
+    var p = THEME.powerups[it.kind], bob = Math.sin(s.t * 6 + it.x * 0.01) * 2;
+    ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(it.x, it.y + bob, 13, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = '700 ' + (p.letter.length > 1 ? 11 : 13) + 'px system-ui, sans-serif'; ctx.fillText(p.letter, it.x, it.y + bob + 1);
+  }
+
+  function drawPlayer() {
+    if (s.invuln > 0 && Math.floor(s.invuln * 12) % 2 === 0) return;
+    var x = PX, y = s.y, phase = s.onGround ? Math.sin(s.dist / 14) : 0.6;
+    if (s.shield > 0) {
+      ctx.strokeStyle = SHIELD_COLOR; ctx.lineWidth = 2; ctx.globalAlpha = 0.7;
+      ctx.beginPath(); ctx.arc(x + PW / 2, y - (s.duck ? 14 : 24), s.duck ? 26 : 34, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    if (s.duck) {
+      ctx.fillStyle = '#263050'; rr(x - 4, y - 18, 34, 14, 6); ctx.fill();
+      ctx.fillStyle = '#f2c9a4'; ctx.beginPath(); ctx.arc(x + 30, y - 14, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#263050'; ctx.fillRect(x, y - 5, 8, 5); ctx.fillRect(x + 16, y - 5, 8, 5);
+      ctx.fillStyle = THEME.color; rr(x + 6, y - 12, 14, 10, 2); ctx.fill();
+      return;
+    }
+    ctx.strokeStyle = '#263050'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x + 11, y - 18); ctx.lineTo(x + 11 + phase * 9, y - 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 15, y - 18); ctx.lineTo(x + 15 - phase * 9, y - 2); ctx.stroke();
+    ctx.fillStyle = '#263050'; rr(x + 3, y - 38, 20, 22, 5); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillRect(x + 15, y - 37, 4, 9);
+    ctx.fillStyle = THEME.color; ctx.fillRect(x + 16, y - 36, 2, 9);
+    ctx.fillStyle = '#f2c9a4'; ctx.beginPath(); ctx.arc(x + 14, y - 44, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#263050'; ctx.beginPath(); ctx.arc(x + 12, y - 47, 8, Math.PI, Math.PI * 1.9); ctx.fill();
+    ctx.fillStyle = '#1d2433'; ctx.fillRect(x + 17, y - 45, 2, 2);
+    var by = y - 24 - phase * 2;
+    ctx.fillStyle = THEME.color; rr(x + 18, by, 16, 12, 2); ctx.fill();
+    ctx.strokeStyle = '#263050'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + 23, by); ctx.lineTo(x + 23, by - 3); ctx.lineTo(x + 29, by - 3); ctx.lineTo(x + 29, by); ctx.stroke();
+  }
+
+  function drawHud() {
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left'; ctx.fillStyle = '#5d6677'; ctx.font = '600 11px system-ui, sans-serif';
+    ctx.fillText('CASH COLLECTED', 16, 22);
+    ctx.fillStyle = '#1d2433'; ctx.font = '700 22px system-ui, sans-serif';
+    ctx.fillText(money(s.cash), 16, 46);
+
+    ctx.textAlign = 'center'; ctx.fillStyle = '#5d6677'; ctx.font = '600 11px system-ui, sans-serif';
+    ctx.fillText('AGING BUCKET', W / 2, 22);
+    ctx.fillStyle = '#1d2433'; ctx.font = '700 16px system-ui, sans-serif';
+    ctx.fillText(ZONES[s.zone].name, W / 2, 42);
+
+    var bw = 180, bx = W - bw - 16, frac = Math.min(1, s.dso / 90);
+    ctx.textAlign = 'right'; ctx.fillStyle = '#5d6677'; ctx.font = '600 11px system-ui, sans-serif';
+    ctx.fillText('DSO ' + Math.round(s.dso) + ' / 90 DAYS', W - 16, 22);
+    ctx.fillStyle = '#fff'; rr(bx, 30, bw, 14, 7); ctx.fill();
+    ctx.fillStyle = frac < 0.55 ? '#0b8a6a' : frac < 0.8 ? '#d98a00' : THEME.color;
+    if (frac > 0.04) { rr(bx, 30, bw * frac, 14, 7); ctx.fill(); }
+    ctx.strokeStyle = '#39415a'; ctx.lineWidth = 1.5; rr(bx, 30, bw, 14, 7); ctx.stroke();
+
+    var sy = 68; ctx.textAlign = 'left';
+    if (target) {
+      ctx.fillStyle = s.beaten ? '#0b8a6a' : '#5d6677'; ctx.font = '600 11px system-ui, sans-serif';
+      ctx.fillText((s.beaten ? 'Beaten: ' : 'To beat: ') + (challenge ? target.name : 'your best') + ' ' + money(target.score), 16, 62);
+      sy = 82;
+    }
+    ctx.font = '600 12px system-ui, sans-serif';
+    function status(text, color) { ctx.fillStyle = color; ctx.fillText(text, 16, sy); sy += 16; }
+    TIMED.forEach(function (k) {
+      if (s[k] > 0 && THEME.powerups[k]) status(THEME.powerups[k].name + ': ' + Math.ceil(s[k]) + 's', k === 'ptp' ? '#8a5a00' : THEME.powerups[k].color);
+    });
+
+    if (s.banner > 0) {
+      ctx.globalAlpha = Math.min(1, s.banner);
+      ctx.textAlign = 'center'; ctx.fillStyle = '#1d2433'; ctx.font = '800 30px system-ui, sans-serif';
+      ctx.fillText(ZONES[s.zone].name, W / 2, 110);
+      ctx.font = '600 13px system-ui, sans-serif'; ctx.fillStyle = '#5d6677';
+      ctx.fillText(s.zone === 0 ? 'Invoice sent. Collect it while it is fresh.' : 'The debt is getting older, and harder to collect.', W / 2, 130);
+      ctx.globalAlpha = 1;
+    }
+    if (s.toast && s.banner <= 0) {
+      ctx.globalAlpha = Math.min(1, s.toast.t);
+      ctx.textAlign = 'center'; ctx.font = '700 17px system-ui, sans-serif';
+      var tw = ctx.measureText(s.toast.text).width + 28;
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'; rr(W / 2 - tw / 2, 92, tw, 32, 16); ctx.fill();
+      ctx.fillStyle = '#1d2433'; ctx.fillText(s.toast.text, W / 2, 114);
+      ctx.globalAlpha = 1;
+    }
+    ctx.textAlign = 'left'; ctx.font = '700 14px system-ui, sans-serif';
+    for (var i = 0; i < s.msgs.length; i++) {
+      var m = s.msgs[i];
+      ctx.globalAlpha = Math.min(1, m.t * 2); ctx.fillStyle = m.color;
+      ctx.fillText(m.text, PX + 36, m.y - i * 16);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function draw() {
+    drawBackground();
+    var i;
+    for (i = 0; i < s.obstacles.length; i++) drawObstacle(s.obstacles[i]);
+    for (i = 0; i < s.items.length; i++) drawItem(s.items[i]);
+    drawPlayer();
+    drawHud();
+  }
+
+  // ---- Loop ----
+  var last = 0;
+  function frame(now) {
+    var dt = Math.min(0.033, (now - last) / 1000 || 0);
+    last = now;
+    if (mode === 'play') update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---- Input ----
+  function pressJump() {
+    if (mode === 'play') { input.jumpBuf = 0.12; input.jumpHeld = true; }
+  }
+  function canRestart() { return mode === 'intro' || (mode === 'over' && performance.now() - overAt > 700); }
+
+  window.addEventListener('keydown', function (e) {
+    if (e.target && e.target.tagName === 'INPUT') return;
+    var k = e.code;
+    if (k === 'Space' || k === 'ArrowUp' || k === 'KeyW') {
+      e.preventDefault();
+      if (mode === 'play') { if (!e.repeat) pressJump(); }
+      else if (canRestart() && !e.repeat) start();
+    } else if (k === 'ArrowDown' || k === 'KeyS') {
+      e.preventDefault(); input.duck = true;
+    } else if (k === 'Enter' && canRestart() && !e.repeat && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A') {
+      start();
+    }
+  });
+  window.addEventListener('keyup', function (e) {
+    var k = e.code;
+    if (k === 'Space' || k === 'ArrowUp' || k === 'KeyW') input.jumpHeld = false;
+    if (k === 'ArrowDown' || k === 'KeyS') input.duck = false;
+  });
+  window.addEventListener('blur', function () { input.duck = false; input.jumpHeld = false; });
+
+  var swipeY = null;
+  canvas.addEventListener('pointerdown', function (e) { e.preventDefault(); swipeY = e.clientY; pressJump(); });
+  canvas.addEventListener('pointermove', function (e) { if (swipeY !== null && e.clientY - swipeY > 28) { input.duck = true; input.jumpHeld = false; } });
+  function endPointer() { swipeY = null; input.duck = false; input.jumpHeld = false; }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  var duckBtn = document.getElementById('duckBtn'), jumpBtn = document.getElementById('jumpBtn');
+  duckBtn.addEventListener('pointerdown', function (e) { e.preventDefault(); input.duck = true; });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) { duckBtn.addEventListener(ev, function () { input.duck = false; }); });
+  jumpBtn.addEventListener('pointerdown', function (e) { e.preventDefault(); pressJump(); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) { jumpBtn.addEventListener(ev, function () { input.jumpHeld = false; }); });
+
+  document.getElementById('startBtn').addEventListener('click', start);
+  document.getElementById('againBtn').addEventListener('click', start);
+  document.getElementById('copyBtn').addEventListener('click', function () {
+    var btn = this, text = shareText();
+    function done(ok) { btn.textContent = ok ? 'Copied' : 'Copy failed'; }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+    else done(false);
+  });
+  document.getElementById('shareBtn').addEventListener('click', function () {
+    window.open('https://www.linkedin.com/sharing/share-offsite/?url=' + encodeURIComponent(challengeUrl()), '_blank', 'noopener');
+  });
+})();
+</script>
+</body>
+</html>
